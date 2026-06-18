@@ -9,7 +9,7 @@ const DEFAULT_PREMISSAS = {
   inflacaoAbaixo60: 6,
   inflacaoAcima60: 0,
   pixPercent: 6,
-  observacao: "Tanto o Pix quanto o dinheiro podem ser pagos mês a mês, desde que toda a festa esteja quitada até 15 dias antes do evento.",
+  observacao: "O pagamento pode ser feito via Pix ou dinheiro, mês a mês, desde que toda a festa esteja quitada até 15 dias antes do evento.",
   packages: [
     { id: "f1", categoria: "promocional", nome: "Festa Formiguinha 1", dias: "Segunda a quarta", piso: 3380, adulto: 55, crianca: 40 },
     { id: "f2", categoria: "promocional", nome: "Festa Formiguinha 2", dias: "Segunda a quinta", piso: 3615, adulto: 55, crianca: 40 },
@@ -37,8 +37,11 @@ function loadPremissas() {
       const parsed = JSON.parse(raw);
       const merged = { ...deepClone(DEFAULT_PREMISSAS), ...parsed, packages: parsed.packages || DEFAULT_PREMISSAS.packages };
       merged.packages = merged.packages.map(p => ({ ...p, dias: typeof p.dias === "string" ? p.dias.replace(/^Segunda e /, "Segunda a ") : p.dias }));
-      const OBS_ANTIGA = "O valor à vista também pode ser pago via Pix mês a mês, desde que esteja quitado em até 10 dias antes da festa.";
-      if (merged.observacao === OBS_ANTIGA) merged.observacao = DEFAULT_PREMISSAS.observacao;
+      const OBS_ANTIGAS = [
+        "O valor à vista também pode ser pago via Pix mês a mês, desde que esteja quitado em até 10 dias antes da festa.",
+        "Tanto o Pix quanto o dinheiro podem ser pagos mês a mês, desde que toda a festa esteja quitada até 15 dias antes do evento.",
+      ];
+      if (OBS_ANTIGAS.includes(merged.observacao)) merged.observacao = DEFAULT_PREMISSAS.observacao;
       return merged;
     }
   } catch (e) {}
