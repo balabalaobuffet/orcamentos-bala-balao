@@ -344,7 +344,7 @@ export default function App() {
 
   const buildWhatsApp = useCallback(() => {
     const lines = [];
-    lines.push("🎈 ORÇAMENTO BALA BALÃO 🎈"); lines.push(""); lines.push(`• Adultos: ${adults}`); lines.push(`• Crianças: ${children}`); lines.push(""); lines.push("⸻"); lines.push("");
+    lines.push("ORÇAMENTO BALA BALÃO"); lines.push(""); lines.push(`• Adultos: ${adults}`); lines.push(`• Crianças: ${children}`); lines.push(""); lines.push("⸻"); lines.push("");
     const fator = 1 + premissas.parcelaPercent / 100;
     const nP = premissas.numParcelas || 1;
     const addPkg = (pkg) => {
