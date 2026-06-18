@@ -153,7 +153,7 @@ function PremissaInput({ label, value, onChange, prefix, suffix, type = "number"
   const { display, handleChange, handleBlur } = useNumericField(value, onChange, isFloat);
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-      <label style={{ fontFamily: "'DM Sans', sans-serif", fontSize: small ? 12 : 13, color: "#8C7B75", minWidth: small ? 80 : 100, flexShrink: 0 }}>{label}</label>
+      <label style={{ fontFamily: "'DM Sans', sans-serif", fontSize: small ? 12 : 13, color: "#8C7B75", width: small ? 80 : 130, flexShrink: 0, whiteSpace: "nowrap" }}>{label}</label>
       <div style={{ display: "flex", alignItems: "center", flex: 1, background: CARD_BG, borderRadius: 10, border: `1.5px solid ${HAIRLINE}`, padding: "6px 10px", gap: 4 }}>
         {prefix && <span style={{ fontSize: 13, color: "#A99890", fontFamily: "'DM Sans', sans-serif" }}>{prefix}</span>}
         {isNum ? (
