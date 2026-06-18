@@ -151,15 +151,20 @@ function PremissaInput({ label, value, onChange, prefix, suffix, type = "number"
   const isFloat = step && String(step).includes(".");
   const isNum = type === "number";
   const { display, handleChange, handleBlur } = useNumericField(value, onChange, isFloat);
+  const inputStyle = { border: "none", outline: "none", flex: 1, minWidth: 0, fontSize: 14, fontWeight: 600, color: "#5A4A42", fontFamily: "'DM Sans', sans-serif", background: "transparent" };
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-      <label style={{ fontFamily: "'DM Sans', sans-serif", fontSize: small ? 12 : 13, color: "#8C7B75", width: small ? 80 : 130, flexShrink: 0, whiteSpace: "nowrap" }}>{label}</label>
-      <div style={{ display: "flex", alignItems: "center", flex: 1, background: CARD_BG, borderRadius: 10, border: `1.5px solid ${HAIRLINE}`, padding: "6px 10px", gap: 4 }}>
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 10 }}>
+      <label style={{ fontFamily: "'DM Sans', sans-serif", fontSize: small ? 12 : 13, color: "#8C7B75", flexShrink: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{label}</label>
+      <div style={{
+        display: "flex", alignItems: "center", gap: 4, background: CARD_BG, borderRadius: 10,
+        border: `1.5px solid ${HAIRLINE}`, padding: "6px 10px",
+        ...(isNum ? { width: small ? 92 : 100, flexShrink: 0 } : { flex: 1, minWidth: 0 }),
+      }}>
         {prefix && <span style={{ fontSize: 13, color: "#A99890", fontFamily: "'DM Sans', sans-serif" }}>{prefix}</span>}
         {isNum ? (
-          <input type="text" inputMode={isFloat ? "decimal" : "numeric"} aria-label={label} value={display} onChange={e => handleChange(e.target.value)} onBlur={handleBlur} onFocus={e => e.target.select()} style={{ border: "none", outline: "none", flex: 1, fontSize: 14, fontWeight: 600, color: "#5A4A42", fontFamily: "'DM Sans', sans-serif", background: "transparent", minWidth: 0 }} />
+          <input type="text" inputMode={isFloat ? "decimal" : "numeric"} aria-label={label} value={display} onChange={e => handleChange(e.target.value)} onBlur={handleBlur} onFocus={e => e.target.select()} style={{ ...inputStyle, textAlign: "right" }} />
         ) : (
-          <input type="text" aria-label={label} value={value} onChange={e => onChange(e.target.value)} style={{ border: "none", outline: "none", flex: 1, fontSize: 14, fontWeight: 600, color: "#5A4A42", fontFamily: "'DM Sans', sans-serif", background: "transparent", minWidth: 0 }} />
+          <input type="text" aria-label={label} value={value} onChange={e => onChange(e.target.value)} style={inputStyle} />
         )}
         {suffix && <span style={{ fontSize: 12, color: "#A99890", fontFamily: "'DM Sans', sans-serif" }}>{suffix}</span>}
       </div>
