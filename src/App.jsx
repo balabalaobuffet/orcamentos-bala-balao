@@ -1,16 +1,19 @@
-import { useState, useCallback, useMemo, useEffect, useRef } from "react";
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
+import { useState, useCallback, useMemo, useEffect, useRef, lazy, Suspense } from "react";
+import { calcPrice, getInflacao, fmt } from "./pricing.js";
+
+const ReportPage = lazy(() => import("./ReportPage.jsx"));
 
 const DEFAULT_PREMISSAS = {
   parcelaPercent: 15.22,
   numParcelas: 10,
   inflacaoAbaixo60: 6,
   inflacaoAcima60: 0,
-  observacao: "O valor à vista também pode ser pago via Pix mês a mês, desde que esteja quitado em até 10 dias antes da festa.",
+  pixPercent: 6,
+  observacao: "Tanto o Pix quanto o dinheiro podem ser pagos mês a mês, desde que toda a festa esteja quitada até 15 dias antes do evento.",
   packages: [
-    { id: "f1", categoria: "promocional", nome: "Festa Formiguinha 1", dias: "Segunda e quarta", piso: 3380, adulto: 55, crianca: 40 },
-    { id: "f2", categoria: "promocional", nome: "Festa Formiguinha 2", dias: "Segunda e quinta", piso: 3615, adulto: 55, crianca: 40 },
-    { id: "f3", categoria: "promocional", nome: "Festa Formiguinha 3", dias: "Segunda e sexta", piso: 3850, adulto: 55, crianca: 40 },
+    { id: "f1", categoria: "promocional", nome: "Festa Formiguinha 1", dias: "Segunda a quarta", piso: 3380, adulto: 55, crianca: 40 },
+    { id: "f2", categoria: "promocional", nome: "Festa Formiguinha 2", dias: "Segunda a quinta", piso: 3615, adulto: 55, crianca: 40 },
+    { id: "f3", categoria: "promocional", nome: "Festa Formiguinha 3", dias: "Segunda a sexta", piso: 3850, adulto: 55, crianca: 40 },
     { id: "fg1s", categoria: "tradicional", nome: "Festa Formigueiro 1", dias: "Sábado", piso: 4910, adulto: 90, crianca: 45 },
     { id: "fg1d", categoria: "tradicional", nome: "Festa Formigueiro 1", dias: "Dia de semana, domingo e feriado", piso: 4450, adulto: 90, crianca: 45 },
     { id: "fg2", categoria: "tradicional", nome: "Festa Formigueiro 2", dias: "Todos os dias", piso: 5190, adulto: 95, crianca: 45 },
@@ -21,26 +24,10 @@ const DEFAULT_PREMISSAS = {
 };
 
 const STORAGE_KEY = "balabalao-premissas-v1";
-const PKG_COLORS = ["#C4938D", "#D4A088", "#B8956A", "#E8A849", "#C9944A", "#A07D5B", "#8B7355", "#7B5E8D", "#6B4E7D"];
-const STEPS = [15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80];
+const CARD_BG = "#FFFDFB";
+const HAIRLINE = "#E8DDD6";
 
 function deepClone(obj) { return JSON.parse(JSON.stringify(obj)); }
-
-function calcPrice(adults, children, piso, adultoFee, criancaFee, inflacao) {
-  const total = adults + children;
-  let base;
-  if (total <= 30) base = piso;
-  else if (adults < 30) base = piso + (total - 30) * criancaFee;
-  else base = piso + (adults - 30) * adultoFee + children * criancaFee;
-  return base * (1 + inflacao / 100);
-}
-
-function getInflacao(premissas, adults, children) {
-  return (adults + children) < 60 ? premissas.inflacaoAbaixo60 : premissas.inflacaoAcima60;
-}
-
-function fmt(v) { return v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
-function fmtShort(v) { return "R$ " + (v / 1000).toFixed(1).replace(".", ",") + "k"; }
 
 // ── Storage ──
 function loadPremissas() {
@@ -48,7 +35,11 @@ function loadPremissas() {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      return { ...deepClone(DEFAULT_PREMISSAS), ...parsed, packages: parsed.packages || DEFAULT_PREMISSAS.packages };
+      const merged = { ...deepClone(DEFAULT_PREMISSAS), ...parsed, packages: parsed.packages || DEFAULT_PREMISSAS.packages };
+      merged.packages = merged.packages.map(p => ({ ...p, dias: typeof p.dias === "string" ? p.dias.replace(/^Segunda e /, "Segunda a ") : p.dias }));
+      const OBS_ANTIGA = "O valor à vista também pode ser pago via Pix mês a mês, desde que esteja quitado em até 10 dias antes da festa.";
+      if (merged.observacao === OBS_ANTIGA) merged.observacao = DEFAULT_PREMISSAS.observacao;
+      return merged;
     }
   } catch (e) {}
   return null;
@@ -89,31 +80,53 @@ function Stepper({ value, onChange, min = 0, max = 200, label }) {
   return (
     <div>
       <label style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 13, color: "#8C7B75", letterSpacing: 1, textTransform: "uppercase", fontWeight: 500, display: "block", marginBottom: 8 }}>{label}</label>
-      <div style={{ display: "flex", alignItems: "center", background: "#fff", borderRadius: 16, border: "1.5px solid #E8DDD6", overflow: "hidden" }}>
-        <button onClick={() => onChange(Math.max(min, value - 1))} style={{ width: 56, height: 56, border: "none", background: value <= min ? "#F5F0EC" : "#FAF5F0", color: value <= min ? "#C4B8B0" : "#B8956A", fontSize: 24, fontWeight: 600, cursor: value <= min ? "default" : "pointer", transition: "all .2s", fontFamily: "'DM Sans', sans-serif" }}>−</button>
-        <input type="text" inputMode="numeric" value={display} onChange={e => handleChange(e.target.value)} onBlur={handleBlur} onFocus={e => e.target.select()} style={{ flex: 1, border: "none", outline: "none", textAlign: "center", fontSize: 28, fontWeight: 700, color: "#5A4A42", fontFamily: "'Cormorant Garamond', serif", background: "transparent", minWidth: 0 }} />
-        <button onClick={() => onChange(Math.min(max, value + 1))} style={{ width: 56, height: 56, border: "none", background: value >= max ? "#F5F0EC" : "#C4938D", color: value >= max ? "#C4B8B0" : "#fff", fontSize: 24, fontWeight: 600, cursor: value >= max ? "default" : "pointer", transition: "all .2s", fontFamily: "'DM Sans', sans-serif" }}>+</button>
+      <div style={{ display: "flex", alignItems: "center", background: CARD_BG, borderRadius: 16, border: `1.5px solid ${HAIRLINE}`, overflow: "hidden" }}>
+        <button aria-label={`Diminuir ${label}`} onClick={() => onChange(Math.max(min, value - 1))} style={{ width: 56, height: 56, border: "none", background: value <= min ? "#F5F0EC" : "#FAF5F0", color: value <= min ? "#C4B8B0" : "#B8956A", fontSize: 24, fontWeight: 600, cursor: value <= min ? "default" : "pointer", transition: "all .2s", fontFamily: "'DM Sans', sans-serif" }}>−</button>
+        <input type="text" inputMode="numeric" aria-label={label} value={display} onChange={e => handleChange(e.target.value)} onBlur={handleBlur} onFocus={e => e.target.select()} style={{ flex: 1, border: "none", outline: "none", textAlign: "center", fontSize: 28, fontWeight: 700, color: "#5A4A42", fontFamily: "'Cormorant Garamond', serif", background: "transparent", minWidth: 0 }} />
+        <button aria-label={`Aumentar ${label}`} onClick={() => onChange(Math.min(max, value + 1))} style={{ width: 56, height: 56, border: "none", background: value >= max ? "#F5F0EC" : "#C4938D", color: value >= max ? "#C4B8B0" : "#fff", fontSize: 24, fontWeight: 600, cursor: value >= max ? "default" : "pointer", transition: "all .2s", fontFamily: "'DM Sans', sans-serif" }}>+</button>
       </div>
     </div>
   );
 }
 
 // ── PriceCard ──
+function PaymentRow({ icon, label, value, tag, emphasis }) {
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12 }}>
+      <span style={{ display: "flex", alignItems: "baseline", gap: 6, fontFamily: "'DM Sans', sans-serif", fontSize: 13, color: emphasis ? "#5A4A42" : "#8C7B75", fontWeight: emphasis ? 600 : 500 }}>
+        <span>{icon}</span>{label}
+        {tag && <span style={{ fontSize: 9.5, color: "#B8956A", fontWeight: 700, textTransform: "uppercase", letterSpacing: .4 }}>{tag}</span>}
+      </span>
+      {emphasis ? (
+        <span style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 25, fontWeight: 700, color: "#B8956A", lineHeight: 1 }}>{value}</span>
+      ) : (
+        <span style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 14, fontWeight: 600, color: "#5A4A42", whiteSpace: "nowrap" }}>{value}</span>
+      )}
+    </div>
+  );
+}
+
 function PriceCard({ pkg, adults, children, premissas, accent }) {
   const inflacao = getInflacao(premissas, adults, children);
   const base = calcPrice(adults, children, pkg.piso, pkg.adulto, pkg.crianca, inflacao);
-  const parcela = (base * (1 + premissas.parcelaPercent / 100)) / premissas.numParcelas;
+  const nParc = premissas.numParcelas || 1;
+  const parcela = (base * (1 + premissas.parcelaPercent / 100)) / nParc;
+  const pix = base * (1 + premissas.pixPercent / 100);
   return (
-    <div style={{ background: "#fff", borderRadius: 16, padding: "20px 20px 18px", borderLeft: `4px solid ${accent}`, boxShadow: "0 2px 12px rgba(0,0,0,.04)", transition: "transform .2s, box-shadow .2s" }}
-      onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-2px)"; e.currentTarget.style.boxShadow = "0 6px 20px rgba(0,0,0,.08)"; }}
-      onMouseLeave={e => { e.currentTarget.style.transform = "translateY(0)"; e.currentTarget.style.boxShadow = "0 2px 12px rgba(0,0,0,.04)"; }}>
-      <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 20, fontWeight: 700, color: "#3D2E27", marginBottom: 4 }}>{pkg.nome}</div>
-      <div style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 12, color: "#8C7B75", marginBottom: 12, display: "flex", alignItems: "center", gap: 4 }}>📅 {pkg.dias}</div>
-      <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
-        <span style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 28, fontWeight: 700, color: "#5A4A42" }}>R$ {fmt(base)}</span>
-        <span style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 11, color: "#B8956A", fontWeight: 600, textTransform: "uppercase", letterSpacing: .5 }}>à vista</span>
+    <div style={{ background: CARD_BG, borderRadius: 16, padding: "18px 18px 16px", border: `1px solid ${HAIRLINE}`, boxShadow: "0 2px 12px rgba(61,46,39,.04)", transition: "transform .2s, box-shadow .2s" }}
+      onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-2px)"; e.currentTarget.style.boxShadow = "0 6px 20px rgba(61,46,39,.08)"; }}
+      onMouseLeave={e => { e.currentTarget.style.transform = "translateY(0)"; e.currentTarget.style.boxShadow = "0 2px 12px rgba(61,46,39,.04)"; }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <span style={{ width: 9, height: 9, borderRadius: "50%", background: accent, flexShrink: 0 }} />
+        <span style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 20, fontWeight: 700, color: "#3D2E27", lineHeight: 1.1 }}>{pkg.nome}</span>
       </div>
-      <div style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 13, color: "#8C7B75", marginTop: 4 }}>ou {premissas.numParcelas}x de R$ {fmt(parcela)}</div>
+      <div style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 12, color: "#A99890", margin: "3px 0 14px", paddingLeft: 17 }}>📅 {pkg.dias}</div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+        <PaymentRow icon="💳" label="Cartão" value={`${nParc}x R$ ${fmt(parcela)}`} />
+        <PaymentRow icon="📲" label="Pix" value={`R$ ${fmt(pix)}`} />
+        <div style={{ height: 1, background: "#F3EDE8", margin: "1px 0" }} />
+        <PaymentRow icon="💵" label="Dinheiro" tag="desc. especial" value={`R$ ${fmt(base)}`} emphasis />
+      </div>
     </div>
   );
 }
@@ -141,12 +154,12 @@ function PremissaInput({ label, value, onChange, prefix, suffix, type = "number"
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
       <label style={{ fontFamily: "'DM Sans', sans-serif", fontSize: small ? 12 : 13, color: "#8C7B75", minWidth: small ? 80 : 100, flexShrink: 0 }}>{label}</label>
-      <div style={{ display: "flex", alignItems: "center", flex: 1, background: "#fff", borderRadius: 10, border: "1.5px solid #E8DDD6", padding: "6px 10px", gap: 4 }}>
+      <div style={{ display: "flex", alignItems: "center", flex: 1, background: CARD_BG, borderRadius: 10, border: `1.5px solid ${HAIRLINE}`, padding: "6px 10px", gap: 4 }}>
         {prefix && <span style={{ fontSize: 13, color: "#A99890", fontFamily: "'DM Sans', sans-serif" }}>{prefix}</span>}
         {isNum ? (
-          <input type="text" inputMode={isFloat ? "decimal" : "numeric"} value={display} onChange={e => handleChange(e.target.value)} onBlur={handleBlur} onFocus={e => e.target.select()} style={{ border: "none", outline: "none", flex: 1, fontSize: 14, fontWeight: 600, color: "#5A4A42", fontFamily: "'DM Sans', sans-serif", background: "transparent", minWidth: 0 }} />
+          <input type="text" inputMode={isFloat ? "decimal" : "numeric"} aria-label={label} value={display} onChange={e => handleChange(e.target.value)} onBlur={handleBlur} onFocus={e => e.target.select()} style={{ border: "none", outline: "none", flex: 1, fontSize: 14, fontWeight: 600, color: "#5A4A42", fontFamily: "'DM Sans', sans-serif", background: "transparent", minWidth: 0 }} />
         ) : (
-          <input type="text" value={value} onChange={e => onChange(e.target.value)} style={{ border: "none", outline: "none", flex: 1, fontSize: 14, fontWeight: 600, color: "#5A4A42", fontFamily: "'DM Sans', sans-serif", background: "transparent", minWidth: 0 }} />
+          <input type="text" aria-label={label} value={value} onChange={e => onChange(e.target.value)} style={{ border: "none", outline: "none", flex: 1, fontSize: 14, fontWeight: 600, color: "#5A4A42", fontFamily: "'DM Sans', sans-serif", background: "transparent", minWidth: 0 }} />
         )}
         {suffix && <span style={{ fontSize: 12, color: "#A99890", fontFamily: "'DM Sans', sans-serif" }}>{suffix}</span>}
       </div>
@@ -158,221 +171,15 @@ function PremissaInput({ label, value, onChange, prefix, suffix, type = "number"
 function PremissaPackageCard({ pkg, index, onChange, accent }) {
   const update = (field, val) => onChange(index, field, val);
   return (
-    <div style={{ background: "#fff", borderRadius: 14, padding: 16, borderLeft: `3px solid ${accent}`, marginBottom: 10, boxShadow: "0 1px 6px rgba(0,0,0,.03)" }}>
-      <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 16, fontWeight: 700, color: "#3D2E27", marginBottom: 10 }}>{pkg.nome}</div>
+    <div style={{ background: CARD_BG, borderRadius: 14, padding: 16, border: `1px solid ${HAIRLINE}`, marginBottom: 10, boxShadow: "0 1px 6px rgba(61,46,39,.03)" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+        <span style={{ width: 8, height: 8, borderRadius: "50%", background: accent, flexShrink: 0 }} />
+        <span style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 16, fontWeight: 700, color: "#3D2E27" }}>{pkg.nome}</span>
+      </div>
       <PremissaInput label="Dias" value={pkg.dias} onChange={v => update("dias", v)} type="text" small />
       <PremissaInput label="Piso" value={pkg.piso} onChange={v => update("piso", v)} prefix="R$" small />
       <PremissaInput label="+ Adulto" value={pkg.adulto} onChange={v => update("adulto", v)} prefix="R$" small />
       <PremissaInput label="+ Criança" value={pkg.crianca} onChange={v => update("crianca", v)} prefix="R$" small />
-    </div>
-  );
-}
-
-// ── Custom Tooltip for Chart ──
-function ChartTooltip({ active, payload, label, labelSuffix }) {
-  if (!active || !payload) return null;
-  return (
-    <div style={{ background: "#fff", border: "1px solid #E8DDD6", borderRadius: 12, padding: 12, boxShadow: "0 4px 16px rgba(0,0,0,.1)", maxWidth: 220 }}>
-      <div style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 12, fontWeight: 700, color: "#3D2E27", marginBottom: 6 }}>{label} {labelSuffix || ""}</div>
-      {payload.map((p, i) => (
-        <div key={i} style={{ display: "flex", justifyContent: "space-between", gap: 12, fontSize: 11, fontFamily: "'DM Sans', sans-serif", color: "#5A4A42", marginBottom: 2 }}>
-          <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-            <span style={{ width: 8, height: 8, borderRadius: "50%", background: p.color, display: "inline-block" }} />
-            {p.name}
-          </span>
-          <span style={{ fontWeight: 700 }}>R$ {fmt(p.value)}</span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-// ══════════════════════════════════════
-// ── REPORT PAGE ──
-// ══════════════════════════════════════
-function ReportPage({ premissas, onBack }) {
-  const [selectedPkg, setSelectedPkg] = useState(0);
-  const [tableMode, setTableMode] = useState("together"); // together | adults | children
-  const [chartMode, setChartMode] = useState("together"); // together | adults | children
-
-  const pkg = premissas.packages[selectedPkg];
-
-  // Chart data based on chartMode
-  const chartData = useMemo(() => {
-    return STEPS.map(n => {
-      const adults = chartMode === "children" ? 15 : n;
-      const children = chartMode === "adults" ? 15 : n;
-      const row = { label: n };
-      premissas.packages.forEach((p) => {
-        const inf = getInflacao(premissas, adults, children);
-        row[p.id] = Math.round(calcPrice(adults, children, p.piso, p.adulto, p.crianca, inf));
-      });
-      return row;
-    });
-  }, [premissas, chartMode]);
-
-  const chartXLabel = chartMode === "together" ? "Adultos = Crianças" : chartMode === "adults" ? "Adultos (crianças = 15)" : "Crianças (adultos = 15)";
-  const chartSubtitle = chartMode === "together" ? "Adultos e crianças variam juntos de 15 a 80" : chartMode === "adults" ? "Adultos variam de 15 a 80 · Crianças fixas em 15" : "Crianças variam de 15 a 80 · Adultos fixos em 15";
-
-  // Short names for legend
-  const shortNames = {
-    f1: "Fmg 1", f2: "Fmg 2", f3: "Fmg 3",
-    fg1s: "Fmgr 1 Sáb", fg1d: "Fmgr 1 Sem",
-    fg2: "Fmgr 2", fg3: "Fmgr 3",
-    bb: "Bala Balão", bbp: "BB Premier",
-  };
-
-  // Table rows
-  const tableRows = useMemo(() => {
-    const inf = (a, c) => getInflacao(premissas, a, c);
-    if (tableMode === "together") {
-      return STEPS.map(n => ({ adults: n, children: n, price: calcPrice(n, n, pkg.piso, pkg.adulto, pkg.crianca, inf(n, n)) }));
-    } else if (tableMode === "adults") {
-      return STEPS.map(n => ({ adults: n, children: 15, price: calcPrice(n, 15, pkg.piso, pkg.adulto, pkg.crianca, inf(n, 15)) }));
-    } else {
-      return STEPS.map(n => ({ adults: 15, children: n, price: calcPrice(15, n, pkg.piso, pkg.adulto, pkg.crianca, inf(15, n)) }));
-    }
-  }, [premissas, pkg, tableMode]);
-
-  const sty = {
-    section: { background: "#fff", borderRadius: 20, padding: 20, boxShadow: "0 4px 24px rgba(0,0,0,.05)", marginBottom: 20 },
-    th: { fontFamily: "'DM Sans', sans-serif", fontSize: 11, fontWeight: 700, color: "#8C7B75", textTransform: "uppercase", letterSpacing: .5, padding: "10px 8px", textAlign: "left", borderBottom: "2px solid #E8DDD6" },
-    td: { fontFamily: "'DM Sans', sans-serif", fontSize: 13, color: "#5A4A42", padding: "10px 8px", borderBottom: "1px solid #F3EDE8" },
-    tdPrice: { fontFamily: "'Cormorant Garamond', serif", fontSize: 15, fontWeight: 700, color: "#5A4A42", padding: "10px 8px", borderBottom: "1px solid #F3EDE8", textAlign: "right" },
-  };
-
-  return (
-    <div style={{ padding: "0 16px", maxWidth: 480, margin: "0 auto", animation: "fadeIn .3s ease" }}>
-      {/* Back button */}
-      <button onClick={onBack} style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", cursor: "pointer", padding: "4px 0", marginBottom: 16, fontFamily: "'DM Sans', sans-serif", fontSize: 14, fontWeight: 600, color: "#B8956A" }}>
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
-        Voltar às Premissas
-      </button>
-
-      {/* Chart Section */}
-      <div style={sty.section}>
-        <h3 style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 20, fontWeight: 700, color: "#3D2E27", margin: "0 0 4px" }}>Comparativo de Preços</h3>
-        <p style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 12, color: "#A99890", margin: "0 0 14px" }}>{chartSubtitle}</p>
-
-        {/* Chart mode tabs */}
-        <div style={{ display: "flex", gap: 0, borderRadius: 10, overflow: "hidden", border: "1.5px solid #E8DDD6", marginBottom: 16 }}>
-          {[
-            { key: "together", label: "Ambos variam" },
-            { key: "adults", label: "Adultos variam" },
-            { key: "children", label: "Crianças variam" },
-          ].map(m => (
-            <button key={m.key} onClick={() => setChartMode(m.key)} style={{
-              flex: 1, padding: "9px 4px", border: "none",
-              background: chartMode === m.key ? "#5A4A42" : "#fff",
-              color: chartMode === m.key ? "#fff" : "#8C7B75",
-              fontSize: 11, fontWeight: 600, fontFamily: "'DM Sans', sans-serif",
-              cursor: "pointer", transition: "all .2s",
-            }}>
-              {m.label}
-            </button>
-          ))}
-        </div>
-
-        <div style={{ width: "100%", height: 300 }}>
-          <ResponsiveContainer>
-            <LineChart data={chartData} margin={{ top: 5, right: 5, left: -10, bottom: 5 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#F3EDE8" />
-              <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#8C7B75", fontFamily: "'DM Sans', sans-serif" }} label={{ value: chartXLabel, position: "insideBottom", offset: -2, fontSize: 11, fill: "#A99890", fontFamily: "'DM Sans', sans-serif" }} />
-              <YAxis tick={{ fontSize: 10, fill: "#8C7B75", fontFamily: "'DM Sans', sans-serif" }} tickFormatter={v => fmtShort(v)} width={52} />
-              <Tooltip content={<ChartTooltip labelSuffix={chartMode === "together" ? "adultos + crianças" : chartMode === "adults" ? "adultos (15 crianças)" : "crianças (15 adultos)"} />} />
-              {premissas.packages.map((p, i) => (
-                <Line key={p.id} type="monotone" dataKey={p.id} name={shortNames[p.id]} stroke={PKG_COLORS[i]} strokeWidth={2} dot={{ r: 2.5 }} activeDot={{ r: 5 }} />
-              ))}
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-        {/* Compact legend */}
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "6px 14px", marginTop: 12 }}>
-          {premissas.packages.map((p, i) => (
-            <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 4 }}>
-              <span style={{ width: 10, height: 3, borderRadius: 2, background: PKG_COLORS[i], display: "inline-block" }} />
-              <span style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 10, color: "#8C7B75" }}>{shortNames[p.id]}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Package Selector */}
-      <div style={sty.section}>
-        <h3 style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 20, fontWeight: 700, color: "#3D2E27", margin: "0 0 14px" }}>Tabela de Preços</h3>
-
-        {/* Package chips */}
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 16 }}>
-          {premissas.packages.map((p, i) => (
-            <button key={p.id} onClick={() => setSelectedPkg(i)} style={{
-              padding: "7px 12px", borderRadius: 20, border: selectedPkg === i ? "none" : "1.5px solid #E8DDD6",
-              background: selectedPkg === i ? PKG_COLORS[i] : "#fff",
-              color: selectedPkg === i ? "#fff" : "#5A4A42",
-              fontSize: 12, fontWeight: 600, fontFamily: "'DM Sans', sans-serif",
-              cursor: "pointer", transition: "all .2s", whiteSpace: "nowrap",
-            }}>
-              {shortNames[p.id]}
-            </button>
-          ))}
-        </div>
-
-        {/* Variation mode tabs */}
-        <div style={{ display: "flex", gap: 0, borderRadius: 10, overflow: "hidden", border: "1.5px solid #E8DDD6", marginBottom: 16 }}>
-          {[
-            { key: "together", label: "Ambos variam" },
-            { key: "adults", label: "Adultos variam" },
-            { key: "children", label: "Crianças variam" },
-          ].map(m => (
-            <button key={m.key} onClick={() => setTableMode(m.key)} style={{
-              flex: 1, padding: "9px 4px", border: "none",
-              background: tableMode === m.key ? "#5A4A42" : "#fff",
-              color: tableMode === m.key ? "#fff" : "#8C7B75",
-              fontSize: 11, fontWeight: 600, fontFamily: "'DM Sans', sans-serif",
-              cursor: "pointer", transition: "all .2s",
-            }}>
-              {m.label}
-            </button>
-          ))}
-        </div>
-
-        {/* Info pill */}
-        <div style={{ background: "#FAF5F0", borderRadius: 10, padding: "8px 12px", marginBottom: 14, fontSize: 12, fontFamily: "'DM Sans', sans-serif", color: "#8C7B75" }}>
-          {tableMode === "together" && "Adultos e crianças variam juntos de 15 a 80"}
-          {tableMode === "adults" && "Adultos variam de 15 a 80 · Crianças fixas em 15"}
-          {tableMode === "children" && "Crianças variam de 15 a 80 · Adultos fixos em 15"}
-        </div>
-
-        {/* Table */}
-        <div style={{ overflowX: "auto", borderRadius: 12, border: "1px solid #E8DDD6" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead>
-              <tr>
-                <th style={sty.th}>Adultos</th>
-                <th style={sty.th}>Crianças</th>
-                <th style={{ ...sty.th, textAlign: "right" }}>Preço à Vista</th>
-              </tr>
-            </thead>
-            <tbody>
-              {tableRows.map((row, i) => {
-                const isHighlight = (row.adults + row.children) === 60;
-                return (
-                  <tr key={i} style={{ background: isHighlight ? "#FDF6EE" : i % 2 === 0 ? "#fff" : "#FDFBF9" }}>
-                    <td style={sty.td}>{row.adults}</td>
-                    <td style={sty.td}>{row.children}</td>
-                    <td style={sty.tdPrice}>R$ {fmt(row.price)}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-
-        {/* Highlight explanation */}
-        <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 10, fontSize: 11, fontFamily: "'DM Sans', sans-serif", color: "#A99890" }}>
-          <span style={{ width: 12, height: 12, borderRadius: 3, background: "#FDF6EE", border: "1px solid #E8DDD6", display: "inline-block" }} />
-          Linha destacada = 60 convidados (mudança de faixa de ajuste)
-        </div>
-      </div>
     </div>
   );
 }
@@ -459,7 +266,7 @@ function LockScreen({ onUnlock }) {
               if (k === "") return <div key={ki} style={{ width: 72, height: 72 }} />;
               if (k === "del") {
                 return (
-                  <button key={ki} onClick={handleDelete} style={{
+                  <button key={ki} aria-label="Apagar" onClick={handleDelete} style={{
                     width: 72, height: 72, borderRadius: "50%", border: "none",
                     background: "transparent", cursor: "pointer",
                     display: "flex", alignItems: "center", justifyContent: "center",
@@ -471,7 +278,7 @@ function LockScreen({ onUnlock }) {
                 );
               }
               return (
-                <button key={ki} onClick={() => handleDigit(k)} style={{
+                <button key={ki} aria-label={k} onClick={() => handleDigit(k)} style={{
                   width: 72, height: 72, borderRadius: "50%",
                   border: "1.5px solid rgba(184,149,106,.3)",
                   background: "rgba(255,255,255,.06)",
@@ -539,12 +346,17 @@ export default function App() {
     const lines = [];
     lines.push("🎈 ORÇAMENTO BALA BALÃO 🎈"); lines.push(""); lines.push(`• Adultos: ${adults}`); lines.push(`• Crianças: ${children}`); lines.push(""); lines.push("⸻"); lines.push("");
     const fator = 1 + premissas.parcelaPercent / 100;
-    const nP = premissas.numParcelas;
+    const nP = premissas.numParcelas || 1;
     const addPkg = (pkg) => {
       const inf = getInflacao(premissas, adults, children);
       const base = calcPrice(adults, children, pkg.piso, pkg.adulto, pkg.crianca, inf);
       const parcela = (base * fator) / nP;
-      lines.push(pkg.nome); lines.push(`📅 ${pkg.dias}`); lines.push(`Parcelado: ${nP}x de R$ ${fmt(parcela)}`); lines.push(`À vista: R$ ${fmt(base)}`); lines.push("");
+      const pix = base * (1 + premissas.pixPercent / 100);
+      lines.push(pkg.nome); lines.push(`📅 ${pkg.dias}`);
+      lines.push(`💳 Cartão: ${nP}x de R$ ${fmt(parcela)}`);
+      lines.push(`📲 Pix: R$ ${fmt(pix)}`);
+      lines.push(`💵 Dinheiro (desconto especial): R$ ${fmt(base)}`);
+      lines.push("");
     };
     lines.push("FESTAS PROMOCIONAIS"); lines.push("(exceto feriados)"); lines.push(""); promo.forEach(addPkg);
     lines.push("⸻"); lines.push(""); lines.push("FESTAS TRADICIONAIS"); lines.push(""); trad.forEach(addPkg);
@@ -587,15 +399,17 @@ export default function App() {
         <div style={{ width: 40, height: 2, background: "linear-gradient(90deg, #C4938D, #B8956A)", margin: "12px auto 0", borderRadius: 2 }} />
       </div>
 
-      {/* Report Page */}
+      {/* Report Page (lazy) */}
       {showReport && (
-        <ReportPage premissas={premissas} onBack={() => { setShowReport(false); window.scrollTo({ top: 0, behavior: "smooth" }); }} />
+        <Suspense fallback={<div style={{ textAlign: "center", padding: 48, fontSize: 11, letterSpacing: 2, textTransform: "uppercase", color: "#B8956A", fontWeight: 600, fontFamily: "'DM Sans', sans-serif" }}>Carregando relatório...</div>}>
+          <ReportPage premissas={premissas} onBack={() => { setShowReport(false); window.scrollTo({ top: 0, behavior: "smooth" }); }} />
+        </Suspense>
       )}
 
       {/* Calculator Tab */}
       {!showReport && tab === "calc" && (
         <div style={{ padding: "0 16px", maxWidth: 480, margin: "0 auto" }}>
-          <div style={{ background: "#fff", borderRadius: 20, padding: 24, boxShadow: "0 4px 24px rgba(0,0,0,.05)", marginBottom: 24 }}>
+          <div style={{ background: CARD_BG, borderRadius: 20, padding: 24, boxShadow: "0 4px 24px rgba(61,46,39,.05)", marginBottom: 24, border: `1px solid ${HAIRLINE}` }}>
             <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
               <Stepper label="Adultos" value={adults} onChange={setAdults} />
               <Stepper label="Crianças" value={children} onChange={setChildren} />
@@ -627,13 +441,13 @@ export default function App() {
       {!showReport && tab === "premissas" && (
         <div style={{ padding: "0 16px", maxWidth: 480, margin: "0 auto" }}>
           {saveStatus && (
-            <div style={{ position: "fixed", top: 12, left: "50%", transform: "translateX(-50%)", background: saveStatus === "saved" ? "#E8F5E8" : "#FDF6EE", color: saveStatus === "saved" ? "#5A8C5A" : "#B8956A", padding: "6px 16px", borderRadius: 20, fontSize: 12, fontWeight: 600, zIndex: 200, boxShadow: "0 2px 12px rgba(0,0,0,.1)", animation: "fadeIn .2s ease", fontFamily: "'DM Sans', sans-serif" }}>
+            <div style={{ position: "fixed", top: 12, left: "50%", transform: "translateX(-50%)", background: saveStatus === "saved" ? "#E8F5E8" : "#FDF6EE", color: saveStatus === "saved" ? "#5A8C5A" : "#B8956A", padding: "6px 16px", borderRadius: 20, fontSize: 12, fontWeight: 600, zIndex: 200, boxShadow: "0 2px 12px rgba(61,46,39,.1)", animation: "fadeIn .2s ease", fontFamily: "'DM Sans', sans-serif" }}>
               {saveStatus === "saving" ? "Salvando..." : "✓ Salvo"}
             </div>
           )}
 
           {/* Ajuste Global */}
-          <div style={{ background: "#fff", borderRadius: 20, padding: 20, boxShadow: "0 4px 24px rgba(0,0,0,.05)", marginBottom: 20 }}>
+          <div style={{ background: CARD_BG, borderRadius: 20, padding: 20, boxShadow: "0 4px 24px rgba(61,46,39,.05)", marginBottom: 20, border: `1px solid ${HAIRLINE}` }}>
             <h3 style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 18, fontWeight: 700, color: "#3D2E27", margin: "0 0 6px" }}>Ajuste de Preços</h3>
             <p style={{ fontSize: 12, color: "#A99890", margin: "0 0 16px", lineHeight: 1.5 }}>Percentual aplicado sobre o valor base de todos os pacotes (ex.: inflação anual).</p>
             <div style={{ background: "#FAF5F0", borderRadius: 12, padding: 14, marginBottom: 10 }}>
@@ -646,17 +460,18 @@ export default function App() {
             </div>
           </div>
 
-          {/* Parcelamento */}
-          <div style={{ background: "#fff", borderRadius: 20, padding: 20, boxShadow: "0 4px 24px rgba(0,0,0,.05)", marginBottom: 20 }}>
-            <h3 style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 18, fontWeight: 700, color: "#3D2E27", margin: "0 0 14px" }}>Parcelamento</h3>
+          {/* Pagamento */}
+          <div style={{ background: CARD_BG, borderRadius: 20, padding: 20, boxShadow: "0 4px 24px rgba(61,46,39,.05)", marginBottom: 20, border: `1px solid ${HAIRLINE}` }}>
+            <h3 style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 18, fontWeight: 700, color: "#3D2E27", margin: "0 0 14px" }}>Pagamento</h3>
             <PremissaInput label="Parcelas" value={premissas.numParcelas} onChange={v => setPremissas(p => ({ ...p, numParcelas: v }))} suffix="x" />
-            <PremissaInput label="Acréscimo" value={premissas.parcelaPercent} onChange={v => setPremissas(p => ({ ...p, parcelaPercent: v }))} suffix="%" step="0.01" />
+            <PremissaInput label="Acréscimo Cartão" value={premissas.parcelaPercent} onChange={v => setPremissas(p => ({ ...p, parcelaPercent: v }))} suffix="%" step="0.01" />
+            <PremissaInput label="Acréscimo Pix" value={premissas.pixPercent} onChange={v => setPremissas(p => ({ ...p, pixPercent: v }))} suffix="%" step="0.1" />
           </div>
 
           {/* Observação */}
-          <div style={{ background: "#fff", borderRadius: 20, padding: 20, boxShadow: "0 4px 24px rgba(0,0,0,.05)", marginBottom: 20 }}>
+          <div style={{ background: CARD_BG, borderRadius: 20, padding: 20, boxShadow: "0 4px 24px rgba(61,46,39,.05)", marginBottom: 20, border: `1px solid ${HAIRLINE}` }}>
             <h3 style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 18, fontWeight: 700, color: "#3D2E27", margin: "0 0 14px" }}>Observação do Orçamento</h3>
-            <textarea value={premissas.observacao} onChange={e => setPremissas(p => ({ ...p, observacao: e.target.value }))} rows={3} style={{ width: "100%", border: "1.5px solid #E8DDD6", borderRadius: 10, padding: 10, fontSize: 13, fontFamily: "'DM Sans', sans-serif", color: "#5A4A42", outline: "none", resize: "vertical", background: "#fff", boxSizing: "border-box" }} />
+            <textarea value={premissas.observacao} onChange={e => setPremissas(p => ({ ...p, observacao: e.target.value }))} rows={3} style={{ width: "100%", border: `1.5px solid ${HAIRLINE}`, borderRadius: 10, padding: 10, fontSize: 13, fontFamily: "'DM Sans', sans-serif", color: "#5A4A42", outline: "none", resize: "vertical", background: CARD_BG, boxSizing: "border-box" }} />
           </div>
 
           {/* Package Categories */}
@@ -670,13 +485,13 @@ export default function App() {
             return (
               <div key={cat.key} style={{ marginBottom: 16 }}>
                 <button onClick={() => setExpandedCat(isOpen ? null : cat.key)} style={{
-                  width: "100%", padding: "14px 18px", background: "#fff", border: "1.5px solid #E8DDD6", borderRadius: 14,
+                  width: "100%", padding: "14px 18px", background: CARD_BG, border: `1.5px solid ${HAIRLINE}`, borderRadius: 14,
                   display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer",
                   fontFamily: "'Cormorant Garamond', serif", fontSize: 17, fontWeight: 700, color: "#3D2E27",
-                  boxShadow: "0 2px 8px rgba(0,0,0,.03)", transition: "all .2s",
+                  boxShadow: "0 2px 8px rgba(61,46,39,.03)", transition: "all .2s",
                 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    <div style={{ width: 4, height: 22, borderRadius: 2, background: cat.accent }} />
+                    <span style={{ width: 9, height: 9, borderRadius: "50%", background: cat.accent }} />
                     {cat.label}
                   </div>
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#8C7B75" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ transform: isOpen ? "rotate(180deg)" : "rotate(0deg)", transition: "transform .2s" }}><polyline points="6 9 12 15 18 9"/></svg>
@@ -713,7 +528,7 @@ export default function App() {
 
       {/* Bottom Nav */}
       {!showReport && (
-        <nav style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: "rgba(255,255,255,.95)", backdropFilter: "blur(20px)", borderTop: "1px solid #E8DDD6", display: "flex", zIndex: 100, paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
+        <nav style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: "rgba(255,255,255,.95)", backdropFilter: "blur(20px)", borderTop: `1px solid ${HAIRLINE}`, display: "flex", zIndex: 100, paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
           {[
             { key: "calc", label: "Calculadora", icon: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="2" width="16" height="20" rx="2"/><line x1="8" y1="6" x2="16" y2="6"/><line x1="8" y1="10" x2="10" y2="10"/><line x1="14" y1="10" x2="16" y2="10"/><line x1="8" y1="14" x2="10" y2="14"/><line x1="14" y1="14" x2="16" y2="14"/><line x1="8" y1="18" x2="10" y2="18"/><line x1="14" y1="18" x2="16" y2="18"/></svg> },
             { key: "premissas", label: "Premissas", icon: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/><circle cx="8" cy="7" r="2.5" fill="currentColor"/><circle cx="16" cy="12" r="2.5" fill="currentColor"/><circle cx="10" cy="17" r="2.5" fill="currentColor"/></svg> },
